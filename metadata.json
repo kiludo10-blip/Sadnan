@@ -1,0 +1,6 @@
+{
+  "name": "SADNAN CAPTURE",
+  "description": "Free, open-source, non-root Android VpnService network traffic capture APK and interactive PCAPdroid-style packet dissection workbench.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

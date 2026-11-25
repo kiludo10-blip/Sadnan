@@ -31,7 +31,6 @@ import { dissectRawIpPacket, parseSslKeylogFile } from './engine/dissector';
 import { FRIENDLY_APP_OPTIONS } from './engine/enrichment';
 import { parsePcapOrPcapngFile } from './engine/pcap';
 import { PacketRingBuffer } from './engine/ringBuffer';
-import { generateSandboxPacketBatch } from './engine/trafficGenerator';
 import {
   b64ToU8,
   clearVaultStorage,
@@ -227,37 +226,69 @@ export default function App() {
     [syncFromRing, enqueueVaultChunk]
   );
 
-  // Capture Loop
+  // Live Socket Capture Loop (dissects real server TCP/UDP/HTTP/HTTPS_TLS socket probes — zero synthetic simulation)
+  const ingestProbeRef = useRef<(probePackets: ProbeResultPacket[]) => number>(() => 0);
+
   useEffect(() => {
     if (!isCapturing) {
       setPacketsPerSec(0);
       return;
     }
 
+    let cancelled = false;
     let secCount = 0;
     const ppsTimer = setInterval(() => {
       setPacketsPerSec(secCount);
       secCount = 0;
     }, 1000);
 
-    const streamTimer = setInterval(() => {
-      const batch = generateSandboxPacketBatch({
-        selectedApp,
-        startSeq: seqRef.current,
-        tick: tickRef.current++,
-        keylogEntries,
-        firewallRules,
-      });
-      seqRef.current += batch.length;
-      secCount += batch.length;
-      pushPacketsIntoPipeline(batch);
-    }, 550);
+    const probeSequence: Array<Record<string, string>> = [
+      { mode: 'HTTP', targetPreset: 'json' },
+      { mode: 'UDP', customPayload: 'SADNAN_UDP_LIVE_SYNC' },
+      { mode: 'TCP', customPayload: 'SADNAN_TCP_LIVE_CHECK' },
+      { mode: 'HTTP', targetPreset: 'html' },
+      { mode: 'HTTPS_TLS', targetPreset: 'cloudflare-doh' },
+    ];
+
+    const runLoop = async () => {
+      while (!cancelled) {
+        const spec = probeSequence[tickRef.current % probeSequence.length];
+        tickRef.current += 1;
+        try {
+          const resp = await fetch('/api/probe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(spec),
+          });
+          const data = await resp.json();
+          if (!cancelled && data.ok && Array.isArray(data.packets)) {
+            const added = ingestProbeRef.current(data.packets as ProbeResultPacket[]);
+            secCount += added;
+          } else if (!cancelled && data.error) {
+            ringRef.current.recordError(`PROBE_${spec.mode}`, String(data.error));
+            syncFromRing();
+          }
+        } catch (err) {
+          if (!cancelled) {
+            ringRef.current.recordError(
+              `PROBE_${spec.mode}`,
+              err instanceof Error ? err.message : 'Live socket probe failed'
+            );
+            syncFromRing();
+          }
+        }
+        if (cancelled) break;
+        await new Promise((r) => setTimeout(r, 900));
+      }
+    };
+
+    void runLoop();
 
     return () => {
-      clearInterval(streamTimer);
+      cancelled = true;
       clearInterval(ppsTimer);
     };
-  }, [isCapturing, selectedApp, keylogEntries, firewallRules, pushPacketsIntoPipeline]);
+  }, [isCapturing, syncFromRing]);
 
   const toggleCapture = async () => {
     if (isCapturing) {
@@ -378,25 +409,33 @@ export default function App() {
     }
   };
 
-  const handleIngestProbePackets = (probePackets: ProbeResultPacket[]) => {
-    const appObj = FRIENDLY_APP_OPTIONS.find((a) => a.id === selectedApp) || FRIENDLY_APP_OPTIONS[0];
-    const dissected: CapturedPacket[] = [];
-    for (const pp of probePackets) {
-      const rawBytes = b64ToU8(pp.rawBytesBase64);
-      const pkt = dissectRawIpPacket(rawBytes, {
-        sequence: seqRef.current++,
-        appId: appObj.id,
-        appName: appObj.displayName,
-        direction: pp.direction,
-        keylogEntries,
-        firewallRules,
-        sourceOrigin: 'SERVER_PROBE',
-        forceProtocolHint: pp.protocol,
-      });
-      if (pkt) dissected.push(pkt);
-    }
-    pushPacketsIntoPipeline(dissected);
-  };
+  const handleIngestProbePackets = useCallback(
+    (probePackets: ProbeResultPacket[]): number => {
+      const appObj = FRIENDLY_APP_OPTIONS.find((a) => a.id === selectedApp) || FRIENDLY_APP_OPTIONS[0];
+      const dissected: CapturedPacket[] = [];
+      for (const pp of probePackets) {
+        const rawBytes = b64ToU8(pp.rawBytesBase64);
+        const pkt = dissectRawIpPacket(rawBytes, {
+          sequence: seqRef.current++,
+          appId: appObj.id,
+          appName: appObj.displayName,
+          direction: pp.direction,
+          keylogEntries,
+          firewallRules,
+          sourceOrigin: 'SERVER_PROBE',
+          forceProtocolHint: pp.protocol,
+        });
+        if (pkt) dissected.push(pkt);
+      }
+      pushPacketsIntoPipeline(dissected);
+      return dissected.length;
+    },
+    [selectedApp, keylogEntries, firewallRules, pushPacketsIntoPipeline]
+  );
+
+  useEffect(() => {
+    ingestProbeRef.current = handleIngestProbePackets;
+  }, [handleIngestProbePackets]);
 
   const handleRecoverSession = async (sessionId: string) => {
     try {

@@ -49,8 +49,28 @@ android.nonTransitiveRClass=true
 `,
     },
     {
+      path: 'gradle/wrapper/gradle-wrapper.properties',
+      description: 'Gradle 8.7 wrapper properties matching AGP 8.5.2',
+      content: `distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\\://services.gradle.org/distributions/gradle-8.7-bin.zip
+networkTimeout=10000
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+`,
+    },
+    {
+      path: 'app/proguard-rules.pro',
+      description: 'ProGuard / R8 keep rules for release APK builds',
+      content: `-keep class com.sadnan.capture.model.** { *; }
+-keep class com.sadnan.capture.vpn.** { *; }
+-dontwarn kotlinx.coroutines.**
+`,
+    },
+    {
       path: 'app/build.gradle.kts',
-      description: 'App module dependencies (Jetpack Compose, Material3, Coroutines, Security)',
+      description: 'App module dependencies (Jetpack Compose, Material3, Coroutines)',
       content: `plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -108,7 +128,7 @@ dependencies {
     },
     {
       path: 'app/src/main/AndroidManifest.xml',
-      description: 'Manifest declaring VpnService, FloatingOverlayService, FileProvider, and non-root permissions',
+      description: 'Manifest declaring VpnService, FloatingOverlayService, FileProvider, and permissions',
       content: `<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -123,6 +143,7 @@ dependencies {
     <application
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.SadnanCapture">
@@ -152,12 +173,7 @@ dependencies {
 
         <service
             android:name=".overlay.FloatingOverlayService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Draggable traffic inspection overlay" />
-        </service>
+            android:exported="false" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -170,6 +186,62 @@ dependencies {
         </provider>
     </application>
 </manifest>
+`,
+    },
+    {
+      path: 'app/src/main/res/drawable/ic_sadnan_bg.xml',
+      description: 'Adaptive launcher icon background',
+      content: `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#121518"
+        android:pathData="M0,0h108v108h-108z" />
+</vector>
+`,
+    },
+    {
+      path: 'app/src/main/res/drawable/ic_sadnan_fg.xml',
+      description: 'Adaptive launcher icon teal shield foreground',
+      content: `<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00897B"
+        android:pathData="M54,22L28,33v21c0,16.5 11.1,31.9 26,36 14.9,-4.1 26,-19.5 26,-36V33L54,22z" />
+    <path
+        android:fillColor="#26A69A"
+        android:pathData="M54,32L36,39.5v14.5c0,11.8 7.8,22.9 18,26.1 10.2,-3.2 18,-14.3 18,-26.1V39.5L54,32z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M51,42h6v18h-6zM45,51h18v6h-18z" />
+</vector>
+`,
+    },
+    {
+      path: 'app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml',
+      description: 'Adaptive launcher icon descriptor',
+      content: `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_sadnan_bg" />
+    <foreground android:drawable="@drawable/ic_sadnan_fg" />
+</adaptive-icon>
+`,
+    },
+    {
+      path: 'app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml',
+      description: 'Adaptive round launcher icon descriptor',
+      content: `<?xml version="1.0" encoding="utf-8"?>
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/ic_sadnan_bg" />
+    <foreground android:drawable="@drawable/ic_sadnan_fg" />
+</adaptive-icon>
 `,
     },
     {
@@ -390,7 +462,7 @@ object PacketDissector {
             }
         } else if (nextProto == 6 && payload.isNotEmpty()) {
             val preview = String(payload, 0, minOf(payload.size, 64), StandardCharsets.UTF_8)
-            if (preview.startsWith("GET ") || preview.startsWith("POST ") || preview.startsWith("HTTP/")) {
+            if (preview.startsWith("GET ") || preview.startsWith("POST ") || preview.startsWith("PUT ") || preview.startsWith("HTTP/")) {
                 protocol = ProtocolType.HTTP
             } else if (payload.size >= 5 && (payload[0].toInt() in 20..23) && payload[1].toInt() == 3) {
                 protocol = if (srcPort == 443 || dstPort == 443) ProtocolType.HTTPS else ProtocolType.TLS
@@ -525,6 +597,96 @@ object PacketDissector {
 `,
     },
     {
+      path: 'app/src/main/java/com/sadnan/capture/engine/BodyBeautifier.kt',
+      description: 'Raw Response Body UTF-8 decoder, HTTP header stripper, chunked decoder, and JSON/HTML beautifier',
+      content: `package com.sadnan.capture.engine
+
+import com.sadnan.capture.model.CapturedPacket
+import org.json.JSONArray
+import org.json.JSONObject
+import java.nio.charset.StandardCharsets
+
+object BodyBeautifier {
+
+    data class BodyResult(
+        val mode: String, // ENCRYPTED, JSON, HTML, PLAINTEXT, EMPTY
+        val contentType: String,
+        val formattedBody: String,
+        val rawBody: String
+    )
+
+    fun analyze(packet: CapturedPacket): BodyResult {
+        val payload = packet.rawBytes.copyOfRange(packet.payloadOffset, packet.rawBytes.size)
+        if (payload.isEmpty()) {
+            return BodyResult("EMPTY", "Empty (0 bytes)", "", "")
+        }
+        if (packet.isEncryptedPayload || packet.protocol.name in setOf("HTTPS", "TLS", "QUIC")) {
+            val hex = payload.take(512).joinToString(" ") { "%02x".format(it) }
+            val b64 = android.util.Base64.encodeToString(payload, android.util.Base64.NO_WRAP)
+            return BodyResult(
+                mode = "ENCRYPTED",
+                contentType = "Encrypted Ciphertext (Not Decrypted)",
+                formattedBody = "Base64:\\n\$b64\\n\\nHex:\\n\$hex",
+                rawBody = b64
+            )
+        }
+
+        val text = String(payload, StandardCharsets.UTF_8)
+        val sepIdx = text.indexOf("\\r\\n\\r\\n").takeIf { it >= 0 } ?: text.indexOf("\\n\\n")
+        var bodyText = if (sepIdx >= 0) {
+            val skip = if (text.startsWith("\\r\\n\\r\\n", sepIdx)) 4 else 2
+            text.substring(sepIdx + skip)
+        } else text
+
+        if (text.contains("transfer-encoding: chunked", ignoreCase = true)) {
+            bodyText = decodeChunked(bodyText)
+        }
+
+        val trimmed = bodyText.trim()
+        if (trimmed.isEmpty()) return BodyResult("EMPTY", "HTTP Headers Only", "", "")
+
+        val jsonCandidate = trimmed
+            .removePrefix(")]}',")
+            .removePrefix(")]}'")
+            .removePrefix("while(1);")
+            .trim()
+        if (jsonCandidate.startsWith("{") || jsonCandidate.startsWith("[")) {
+            try {
+                val pretty = if (jsonCandidate.startsWith("{")) {
+                    JSONObject(jsonCandidate).toString(2)
+                } else {
+                    JSONArray(jsonCandidate).toString(2)
+                }
+                return BodyResult("JSON", "application/json", pretty, bodyText)
+            } catch (_: Exception) { }
+        }
+
+        if (trimmed.startsWith("<!doctype", ignoreCase = true) || trimmed.startsWith("<html", ignoreCase = true)) {
+            return BodyResult("HTML", "text/html", trimmed, bodyText)
+        }
+
+        return BodyResult("PLAINTEXT", "text/plain", bodyText, bodyText)
+    }
+
+    private fun decodeChunked(raw: String): String {
+        val sb = StringBuilder()
+        var idx = 0
+        while (idx < raw.length) {
+            val eol = raw.indexOf("\\r\\n", idx).takeIf { it >= 0 } ?: break
+            val sizeHex = raw.substring(idx, eol).substringBefore(';').trim()
+            val len = sizeHex.toIntOrNull(16) ?: return raw
+            idx = eol + 2
+            if (len == 0) break
+            val end = minOf(raw.length, idx + len)
+            sb.append(raw, idx, end)
+            idx = minOf(raw.length, end + 2)
+        }
+        return if (sb.isNotEmpty()) sb.toString() else raw
+    }
+}
+`,
+    },
+    {
       path: 'app/src/main/java/com/sadnan/capture/engine/PcapWriter.kt',
       description: 'Binary .pcap, .pcapng, and raw body .txt file writer',
       content: `package com.sadnan.capture.engine
@@ -541,13 +703,13 @@ object PcapWriter {
     fun writePcap(file: File, packets: List<CapturedPacket>) {
         FileOutputStream(file).use { out ->
             val hdr = ByteBuffer.allocate(24).order(ByteOrder.LITTLE_ENDIAN)
-            hdr.putInt(0xa1b23c4d.toInt()) // Nanosecond magic
+            hdr.putInt(0xa1b23c4d.toInt())
             hdr.putShort(2)
             hdr.putShort(4)
             hdr.putInt(0)
             hdr.putInt(0)
             hdr.putInt(65535)
-            hdr.putInt(101) // LINKTYPE_RAW
+            hdr.putInt(101)
             out.write(hdr.array())
 
             val rec = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
@@ -610,12 +772,9 @@ object PcapWriter {
         val sb = StringBuilder()
         for (pkt in packets) {
             sb.append("[#\${pkt.sequence}] \${pkt.protocol} \${pkt.srcIp}:\${pkt.srcPort} -> \${pkt.dstIp}:\${pkt.dstPort}\\n")
-            val body = pkt.rawBytes.copyOfRange(pkt.payloadOffset, pkt.rawBytes.size)
-            if (pkt.isEncryptedPayload) {
-                sb.append("[ENCRYPTED CIPHERTEXT — NOT DECRYPTED]\\n")
-            } else {
-                sb.append(String(body, StandardCharsets.UTF_8)).append("\\n")
-            }
+            val body = BodyBeautifier.analyze(pkt)
+            sb.append("Content-Type: \${body.contentType}\\n")
+            sb.append(body.formattedBody).append("\\n")
             sb.append("------------------------------------------------------------\\n")
         }
         file.writeText(sb.toString(), StandardCharsets.UTF_8)
@@ -731,6 +890,11 @@ class EncryptedVaultManager(private val context: Context) {
         return chunkFile
     }
 
+    fun markSessionClosed(sessionId: String) {
+        val dir = File(context.filesDir, "vault/\$sessionId").apply { mkdirs() }
+        File(dir, "closed.marker").writeText("OK")
+    }
+
     fun decryptChunk(file: File): ByteArray {
         val all = file.readBytes()
         val ivLen = all[0].toInt() and 0xFF
@@ -749,23 +913,333 @@ class EncryptedVaultManager(private val context: Context) {
 `,
     },
     {
+      path: 'app/src/main/java/com/sadnan/capture/vpn/TunForwarder.kt',
+      description: 'Real userspace NAT forwarder using VpnService.protect() for live UDP & TCP bidirectional forwarding',
+      content: `package com.sadnan.capture.vpn
+
+import android.net.VpnService
+import com.sadnan.capture.model.CapturedPacket
+import kotlinx.coroutines.*
+import java.io.FileOutputStream
+import java.net.InetAddress
+import java.net.InetSocketAddress
+import java.nio.ByteBuffer
+import java.nio.channels.DatagramChannel
+import java.nio.channels.SocketChannel
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+
+/**
+ * Real bidirectional userspace NAT forwarder over Android's VpnService TUN interface.
+ * Uses vpnService.protect() on all outbound sockets so traffic reaches the real internet
+ * and server responses are wrapped back into IPv4/TCP/UDP packets and written to TUN fd.
+ */
+class TunForwarder(
+    private val vpnService: VpnService,
+    private val tunOut: FileOutputStream,
+    private val scope: CoroutineScope,
+    private val onInboundPacket: (ByteArray) -> Unit,
+    private val onError: (String) -> Unit
+) {
+    private val udpSessions = ConcurrentHashMap<String, DatagramChannel>()
+    private val tcpSessions = ConcurrentHashMap<String, TcpProxySession>()
+    private val ipIdGen = AtomicInteger(100)
+    private val tunWriteLock = Any()
+
+    data class TcpProxySession(
+        val key: String,
+        val clientIp: ByteArray,
+        val serverIp: ByteArray,
+        val clientPort: Int,
+        val serverPort: Int,
+        @Volatile var serverSeq: Long,
+        @Volatile var clientSeq: Long,
+        val channel: SocketChannel
+    )
+
+    fun forwardOutbound(raw: ByteArray, dissected: CapturedPacket?) {
+        if (dissected?.blocked == true) return
+        if (raw.size < 20) return
+        val version = (raw[0].toInt() ushr 4) and 0x0F
+        if (version != 4) return // IPv4 NAT forwarding primary path
+
+        val ihl = (raw[0].toInt() and 0x0F) * 4
+        val proto = raw[9].toInt() and 0xFF
+        val srcIp = raw.copyOfRange(12, 16)
+        val dstIp = raw.copyOfRange(16, 20)
+
+        when (proto) {
+            17 -> handleUdpOutbound(raw, ihl, srcIp, dstIp)
+            6 -> handleTcpOutbound(raw, ihl, srcIp, dstIp)
+        }
+    }
+
+    private fun handleUdpOutbound(raw: ByteArray, ihl: Int, srcIp: ByteArray, dstIp: ByteArray) {
+        if (raw.size < ihl + 8) return
+        val srcPort = u16(raw, ihl)
+        val dstPort = u16(raw, ihl + 2)
+        val payload = raw.copyOfRange(ihl + 8, raw.size)
+        val key = "\${InetAddress.getByAddress(srcIp).hostAddress}:\$srcPort->\${InetAddress.getByAddress(dstIp).hostAddress}:\$dstPort"
+
+        val channel = udpSessions.computeIfAbsent(key) {
+            val ch = DatagramChannel.open()
+            vpnService.protect(ch.socket())
+            ch.connect(InetSocketAddress(InetAddress.getByAddress(dstIp), dstPort))
+            scope.launch(Dispatchers.IO) {
+                val rxBuf = ByteBuffer.allocate(32767)
+                try {
+                    while (isActive && ch.isOpen) {
+                        rxBuf.clear()
+                        val read = ch.read(rxBuf)
+                        if (read > 0) {
+                            val respPayload = ByteArray(read)
+                            rxBuf.flip()
+                            rxBuf.get(respPayload)
+                            val ipPacket = buildIpv4UdpPacket(dstIp, srcIp, dstPort, srcPort, respPayload)
+                            writeToTun(ipPacket)
+                            onInboundPacket(ipPacket)
+                        }
+                    }
+                } catch (e: Exception) {
+                    udpSessions.remove(key)
+                    runCatching { ch.close() }
+                }
+            }
+            ch
+        }
+
+        scope.launch(Dispatchers.IO) {
+            try {
+                channel.write(ByteBuffer.wrap(payload))
+            } catch (e: Exception) {
+                onError("UDP forward error: \${e.message}")
+            }
+        }
+    }
+
+    private fun handleTcpOutbound(raw: ByteArray, ihl: Int, srcIp: ByteArray, dstIp: ByteArray) {
+        if (raw.size < ihl + 20) return
+        val srcPort = u16(raw, ihl)
+        val dstPort = u16(raw, ihl + 2)
+        val seq = u32(raw, ihl + 4)
+        val dataOffset = ((raw[ihl + 12].toInt() ushr 4) and 0x0F) * 4
+        val flags = raw[ihl + 13].toInt() and 0xFF
+        val payloadStart = minOf(raw.size, ihl + maxOf(20, dataOffset))
+        val payload = raw.copyOfRange(payloadStart, raw.size)
+        val key = "\${InetAddress.getByAddress(srcIp).hostAddress}:\$srcPort->\${InetAddress.getByAddress(dstIp).hostAddress}:\$dstPort"
+
+        val isSyn = (flags and 0x02) != 0
+        val isFin = (flags and 0x01) != 0
+        val isRst = (flags and 0x04) != 0
+
+        if (isRst || isFin) {
+            tcpSessions.remove(key)?.let { sess ->
+                if (isFin) {
+                    sess.clientSeq = seq + 1
+                    val finAck = buildIpv4TcpPacket(dstIp, srcIp, dstPort, srcPort, sess.serverSeq, sess.clientSeq, 0x11, ByteArray(0))
+                    writeToTun(finAck)
+                }
+                runCatching { sess.channel.close() }
+            }
+            return
+        }
+
+        if (isSyn && !tcpSessions.containsKey(key)) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    val ch = SocketChannel.open()
+                    vpnService.protect(ch.socket())
+                    ch.connect(InetSocketAddress(InetAddress.getByAddress(dstIp), dstPort))
+                    val sess = TcpProxySession(
+                        key = key,
+                        clientIp = srcIp,
+                        serverIp = dstIp,
+                        clientPort = srcPort,
+                        serverPort = dstPort,
+                        serverSeq = 1000L,
+                        clientSeq = seq + 1L,
+                        channel = ch
+                    )
+                    tcpSessions[key] = sess
+                    // Send SYN+ACK to local app
+                    val synAck = buildIpv4TcpPacket(dstIp, srcIp, dstPort, srcPort, sess.serverSeq, sess.clientSeq, 0x12, ByteArray(0))
+                    sess.serverSeq += 1
+                    writeToTun(synAck)
+                    onInboundPacket(synAck)
+
+                    // Reader loop from real remote server -> TUN
+                    val buf = ByteBuffer.allocate(16384)
+                    while (isActive && ch.isOpen) {
+                        buf.clear()
+                        val n = ch.read(buf)
+                        if (n <= 0) break
+                        val data = ByteArray(n)
+                        buf.flip()
+                        buf.get(data)
+                        val pshAck = buildIpv4TcpPacket(dstIp, srcIp, dstPort, srcPort, sess.serverSeq, sess.clientSeq, 0x18, data)
+                        sess.serverSeq += n
+                        writeToTun(pshAck)
+                        onInboundPacket(pshAck)
+                    }
+                    val fin = buildIpv4TcpPacket(dstIp, srcIp, dstPort, srcPort, sess.serverSeq, sess.clientSeq, 0x11, ByteArray(0))
+                    writeToTun(fin)
+                    tcpSessions.remove(key)
+                    runCatching { ch.close() }
+                } catch (e: Exception) {
+                    onError("TCP connect error (\${dstPort}): \${e.message}")
+                    val rst = buildIpv4TcpPacket(dstIp, srcIp, dstPort, srcPort, 0L, seq + 1L, 0x14, ByteArray(0))
+                    writeToTun(rst)
+                }
+            }
+            return
+        }
+
+        if (payload.isNotEmpty()) {
+            val sess = tcpSessions[key] ?: return
+            scope.launch(Dispatchers.IO) {
+                try {
+                    sess.channel.write(ByteBuffer.wrap(payload))
+                    sess.clientSeq = seq + payload.size
+                    val ackPkt = buildIpv4TcpPacket(dstIp, srcIp, dstPort, srcPort, sess.serverSeq, sess.clientSeq, 0x10, ByteArray(0))
+                    writeToTun(ackPkt)
+                } catch (e: Exception) {
+                    tcpSessions.remove(key)
+                    runCatching { sess.channel.close() }
+                }
+            }
+        }
+    }
+
+    private fun writeToTun(packet: ByteArray) {
+        synchronized(tunWriteLock) {
+            runCatching { tunOut.write(packet) }
+        }
+    }
+
+    fun closeAll() {
+        udpSessions.values.forEach { runCatching { it.close() } }
+        udpSessions.clear()
+        tcpSessions.values.forEach { runCatching { it.channel.close() } }
+        tcpSessions.clear()
+    }
+
+    private fun buildIpv4UdpPacket(srcIp: ByteArray, dstIp: ByteArray, srcPort: Int, dstPort: Int, payload: ByteArray): ByteArray {
+        val totalLen = 20 + 8 + payload.size
+        val pkt = ByteArray(totalLen)
+        val bb = ByteBuffer.wrap(pkt)
+        pkt[0] = 0x45
+        bb.putShort(2, totalLen.toShort())
+        bb.putShort(4, ipIdGen.incrementAndGet().toShort())
+        bb.putShort(6, 0x4000)
+        pkt[8] = 64
+        pkt[9] = 17
+        System.arraycopy(srcIp, 0, pkt, 12, 4)
+        System.arraycopy(dstIp, 0, pkt, 16, 4)
+        bb.putShort(10, ipChecksum(pkt, 0, 20))
+
+        bb.putShort(20, srcPort.toShort())
+        bb.putShort(22, dstPort.toShort())
+        bb.putShort(24, (8 + payload.size).toShort())
+        System.arraycopy(payload, 0, pkt, 28, payload.size)
+        bb.putShort(26, transportChecksum(srcIp, dstIp, 17, pkt, 20, 8 + payload.size))
+        return pkt
+    }
+
+    private fun buildIpv4TcpPacket(
+        srcIp: ByteArray,
+        dstIp: ByteArray,
+        srcPort: Int,
+        dstPort: Int,
+        seq: Long,
+        ack: Long,
+        flags: Int,
+        payload: ByteArray
+    ): ByteArray {
+        val totalLen = 20 + 20 + payload.size
+        val pkt = ByteArray(totalLen)
+        val bb = ByteBuffer.wrap(pkt)
+        pkt[0] = 0x45
+        bb.putShort(2, totalLen.toShort())
+        bb.putShort(4, ipIdGen.incrementAndGet().toShort())
+        bb.putShort(6, 0x4000)
+        pkt[8] = 64
+        pkt[9] = 6
+        System.arraycopy(srcIp, 0, pkt, 12, 4)
+        System.arraycopy(dstIp, 0, pkt, 16, 4)
+        bb.putShort(10, ipChecksum(pkt, 0, 20))
+
+        bb.putShort(20, srcPort.toShort())
+        bb.putShort(22, dstPort.toShort())
+        bb.putInt(24, seq.toInt())
+        bb.putInt(28, ack.toInt())
+        pkt[32] = 0x50
+        pkt[33] = flags.toByte()
+        bb.putShort(34, 65535.toShort())
+        System.arraycopy(payload, 0, pkt, 40, payload.size)
+        bb.putShort(36, transportChecksum(srcIp, dstIp, 6, pkt, 20, 20 + payload.size))
+        return pkt
+    }
+
+    private fun ipChecksum(buf: ByteArray, offset: Int, len: Int): Short {
+        var sum = 0L
+        var i = offset
+        while (i < offset + len) {
+            if (i != offset + 10) {
+                sum += ((buf[i].toInt() and 0xFF) shl 8) or (buf[i + 1].toInt() and 0xFF)
+            }
+            i += 2
+        }
+        while ((sum ushr 16) != 0L) sum = (sum and 0xFFFF) + (sum ushr 16)
+        return (sum.inv() and 0xFFFF).toShort()
+    }
+
+    private fun transportChecksum(srcIp: ByteArray, dstIp: ByteArray, proto: Int, buf: ByteArray, l4Off: Int, l4Len: Int): Short {
+        var sum = 0L
+        for (i in 0 until 4 step 2) {
+            sum += ((srcIp[i].toInt() and 0xFF) shl 8) or (srcIp[i + 1].toInt() and 0xFF)
+            sum += ((dstIp[i].toInt() and 0xFF) shl 8) or (dstIp[i + 1].toInt() and 0xFF)
+        }
+        sum += proto.toLong()
+        sum += l4Len.toLong()
+        var i = l4Off
+        while (i < l4Off + l4Len - 1) {
+            sum += ((buf[i].toInt() and 0xFF) shl 8) or (buf[i + 1].toInt() and 0xFF)
+            i += 2
+        }
+        if ((l4Len and 1) != 0) {
+            sum += (buf[l4Off + l4Len - 1].toInt() and 0xFF) shl 8
+        }
+        while ((sum ushr 16) != 0L) sum = (sum and 0xFFFF) + (sum ushr 16)
+        return (sum.inv() and 0xFFFF).toShort()
+    }
+
+    private fun u16(b: ByteArray, o: Int): Int = ((b[o].toInt() and 0xFF) shl 8) or (b[o + 1].toInt() and 0xFF)
+    private fun u32(b: ByteArray, o: Int): Long =
+        ((b[o].toLong() and 0xFF) shl 24) or ((b[o + 1].toLong() and 0xFF) shl 16) or ((b[o + 2].toLong() and 0xFF) shl 8) or (b[o + 3].toLong() and 0xFF)
+}
+`,
+    },
+    {
       path: 'app/src/main/java/com/sadnan/capture/vpn/SadnanVpnService.kt',
-      description: 'Local VpnService TUN loop with addAllowedApplication(), ring buffer, drop counter, and error log',
+      description: 'Local VpnService TUN loop with TunForwarder, addAllowedApplication(), ring buffer, drop counter, and vault',
       content: `package com.sadnan.capture.vpn
 
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.VpnService
+import android.os.Build
 import android.os.ParcelFileDescriptor
+import androidx.core.app.ServiceCompat
 import com.sadnan.capture.engine.EncryptedVaultManager
 import com.sadnan.capture.engine.PacketDissector
 import com.sadnan.capture.model.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
@@ -785,10 +1259,18 @@ object CaptureRepository {
 
 class SadnanVpnService : VpnService() {
 
+    private data class QueuedFrame(
+        val raw: ByteArray,
+        val dir: TrafficDirection,
+        val preDissected: CapturedPacket? = null
+    )
+
     private var vpnInterface: ParcelFileDescriptor? = null
+    private var forwarder: TunForwarder? = null
+    private var activeSessionId: String? = null
     private val running = AtomicBoolean(false)
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private val ringQueue = ArrayBlockingQueue<ByteArray>(5000)
+    private var ringQueue = ArrayBlockingQueue<QueuedFrame>(5000)
     private val seqCounter = AtomicLong(1L)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -804,6 +1286,7 @@ class SadnanVpnService : VpnService() {
     private fun startTunCapture() {
         if (running.getAndSet(true)) return
         CaptureRepository.isCapturing.value = true
+        ringQueue = ArrayBlockingQueue(CaptureRepository.bufferCapacity.coerceIn(500, 25000))
 
         val builder = Builder()
             .setSession("SADNAN CAPTURE")
@@ -814,9 +1297,6 @@ class SadnanVpnService : VpnService() {
             .addRoute("::", 0)
             .addDnsServer("8.8.8.8")
 
-        // Isolate traffic by selected application when chosen.
-        // OS VPN attribution note: Android VpnService isolates flows via UID/package routing;
-        // shared system daemons (e.g. DNS resolver) may still appear under system UID depending on OS version.
         val pkg = CaptureRepository.selectedPackageName
         if (!pkg.isNullOrBlank()) {
             try {
@@ -836,19 +1316,53 @@ class SadnanVpnService : VpnService() {
 
         val vault = EncryptedVaultManager(applicationContext)
         val sessionId = "sess_\${System.currentTimeMillis()}"
+        activeSessionId = sessionId
 
-        // Reader coroutine (non-blocking enqueue into ring buffer)
+        val tunOut = FileOutputStream(fd)
+        val fwd = TunForwarder(
+            vpnService = this,
+            tunOut = tunOut,
+            scope = scope,
+            onInboundPacket = { inboundRaw ->
+                if (!ringQueue.offer(QueuedFrame(inboundRaw, TrafficDirection.INBOUND))) {
+                    CaptureRepository.droppedPackets.value += 1
+                }
+            },
+            onError = { msg ->
+                CaptureRepository.errorLog.value = (listOf(msg) + CaptureRepository.errorLog.value).take(50)
+            }
+        )
+        forwarder = fwd
+
+        // TUN Reader coroutine (non-blocking enqueue + live NAT forwarding)
         scope.launch {
             val input = FileInputStream(fd)
             val buf = ByteBuffer.allocate(32767)
-            while (running.get()) {
-                val read = input.read(buf.array())
-                if (read > 0) {
-                    val copy = buf.array().copyOfRange(0, read)
-                    if (!ringQueue.offer(copy)) {
-                        CaptureRepository.droppedPackets.value += 1
+            try {
+                while (running.get()) {
+                    val read = input.read(buf.array())
+                    if (read < 0) break
+                    if (read > 0) {
+                        val copy = buf.array().copyOfRange(0, read)
+                        val pkt = PacketDissector.dissect(
+                            rawBytes = copy,
+                            sequence = seqCounter.getAndIncrement(),
+                            appName = CaptureRepository.selectedAppName,
+                            direction = TrafficDirection.OUTBOUND,
+                            keylogs = CaptureRepository.keylogs.value,
+                            firewallRules = CaptureRepository.firewallRules.value
+                        )
+                        fwd.forwardOutbound(copy, pkt)
+                        if (!ringQueue.offer(QueuedFrame(copy, TrafficDirection.OUTBOUND, pkt))) {
+                            CaptureRepository.droppedPackets.value += 1
+                        }
+                        buf.clear()
                     }
-                    buf.clear()
+                }
+            } catch (e: Exception) {
+                if (running.get()) {
+                    CaptureRepository.errorLog.value =
+                        (listOf("TUN read ended: \${e.message}") + CaptureRepository.errorLog.value).take(50)
                 }
             }
         }
@@ -856,25 +1370,24 @@ class SadnanVpnService : VpnService() {
         // Batched dissector & AES-256-GCM vault writer coroutine
         scope.launch {
             var chunkIndex = 0
-            val batch = mutableListOf<ByteArray>()
+            val batch = mutableListOf<QueuedFrame>()
             while (running.get()) {
                 ringQueue.drainTo(batch, 32)
                 if (batch.isNotEmpty()) {
-                    val parsed = batch.mapNotNull { raw ->
-                        PacketDissector.dissect(
-                            rawBytes = raw,
+                    val parsed = batch.mapNotNull { frame ->
+                        frame.preDissected ?: PacketDissector.dissect(
+                            rawBytes = frame.raw,
                             sequence = seqCounter.getAndIncrement(),
                             appName = CaptureRepository.selectedAppName,
-                            direction = TrafficDirection.OUTBOUND,
+                            direction = frame.dir,
                             keylogs = CaptureRepository.keylogs.value,
                             firewallRules = CaptureRepository.firewallRules.value
                         )
                     }
                     if (parsed.isNotEmpty()) {
-                        val current = (CaptureRepository.packets.value + parsed)
-                            .takeLast(CaptureRepository.bufferCapacity)
-                        CaptureRepository.packets.value = current
-                        val combined = batch.fold(ByteArray(0)) { acc, b -> acc + b }
+                        CaptureRepository.packets.value =
+                            (CaptureRepository.packets.value + parsed).takeLast(CaptureRepository.bufferCapacity)
+                        val combined = batch.fold(ByteArray(0)) { acc, frame -> acc + frame.raw }
                         vault.writeEncryptedChunk(sessionId, chunkIndex++, combined)
                     }
                     batch.clear()
@@ -888,7 +1401,11 @@ class SadnanVpnService : VpnService() {
     private fun stopCapture() {
         running.set(false)
         CaptureRepository.isCapturing.value = false
-        vpnInterface?.close()
+        forwarder?.closeAll()
+        forwarder = null
+        activeSessionId?.let { EncryptedVaultManager(applicationContext).markSessionClosed(it) }
+        activeSessionId = null
+        runCatching { vpnInterface?.close() }
         vpnInterface = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -905,7 +1422,8 @@ class SadnanVpnService : VpnService() {
             .setContentText("Capturing non-root VpnService packets locally")
             .setSmallIcon(android.R.drawable.ic_menu_info_details)
             .build()
-        startForeground(101, notif)
+        val fgsType = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
+        ServiceCompat.startForeground(this, 101, notif, fgsType)
     }
 
     override fun onDestroy() {
@@ -1122,11 +1640,14 @@ fun SadnanCaptureTheme(content: @Composable () -> Unit) {
     },
     {
       path: 'app/src/main/java/com/sadnan/capture/MainActivity.kt',
-      description: 'Main Activity hosting Material Toolbar, STATUS | CONNECTIONS tabs, Hero Ring, Friendly App Selector, and Packet Detail Sheet',
+      description: 'Main Activity with PCAPdroid UI, Connections search, Group by Domain/SNI, Packet Detail Raw Response Body sheet, and FileProvider export',
       content: `package com.sadnan.capture
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.ComponentActivity
@@ -1137,7 +1658,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -1145,28 +1668,43 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import com.sadnan.capture.engine.BodyBeautifier
+import com.sadnan.capture.engine.PcapWriter
+import com.sadnan.capture.model.CapturedPacket
 import com.sadnan.capture.model.DumpMode
 import com.sadnan.capture.model.TargetAppProfile
 import com.sadnan.capture.overlay.FloatingOverlayService
+import com.sadnan.capture.share.ShareHelper
 import com.sadnan.capture.ui.PcapColors
 import com.sadnan.capture.ui.SadnanCaptureTheme
 import com.sadnan.capture.vpn.CaptureRepository
 import com.sadnan.capture.vpn.SadnanVpnService
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
     private val vpnLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == RESULT_OK) {
-            startForegroundService(Intent(this, SadnanVpnService::class.java))
+            ContextCompat.startForegroundService(this, Intent(this, SadnanVpnService::class.java))
         }
     }
+
+    private val notifLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ -> }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Friendly App Names & Icons only (package IDs are internal to VpnService.Builder)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
         val appOptions = listOf(
             TargetAppProfile("all", "All Isolated Apps", null),
             TargetAppProfile("free_fire", "Free Fire", "com.dts.freefireth"),
@@ -1180,9 +1718,28 @@ class MainActivity : ComponentActivity() {
                 var selectedTab by remember { mutableIntStateOf(0) }
                 var selectedApp by remember { mutableStateOf(appOptions.first()) }
                 var dumpMode by remember { mutableStateOf(DumpMode.PCAPNG) }
+                var showAppPicker by remember { mutableStateOf(false) }
+                var searchQuery by remember { mutableStateOf("") }
+                var groupByDomain by remember { mutableStateOf(false) }
+                var inspectedPacket by remember { mutableStateOf<CapturedPacket?>(null) }
+
                 val capturing by CaptureRepository.isCapturing.collectAsState()
                 val packets by CaptureRepository.packets.collectAsState()
                 val drops by CaptureRepository.droppedPackets.collectAsState()
+
+                val toggleVpn = {
+                    if (capturing) {
+                        startService(Intent(this@MainActivity, SadnanVpnService::class.java).apply {
+                            action = "STOP_CAPTURE"
+                        })
+                    } else {
+                        CaptureRepository.selectedAppName = selectedApp.displayName
+                        CaptureRepository.selectedPackageName = selectedApp.internalPackageId
+                        val prep = VpnService.prepare(this@MainActivity)
+                        if (prep != null) vpnLauncher.launch(prep)
+                        else ContextCompat.startForegroundService(this@MainActivity, Intent(this@MainActivity, SadnanVpnService::class.java))
+                    }
+                }
 
                 Scaffold(
                     containerColor = PcapColors.Background,
@@ -1190,7 +1747,7 @@ class MainActivity : ComponentActivity() {
                         @OptIn(ExperimentalMaterial3Api::class)
                         TopAppBar(
                             colors = TopAppBarDefaults.topAppBarColors(containerColor = PcapColors.Card),
-                            title = { Text("SADNAN CAPTURE", fontWeight = FontWeight.Bold) },
+                            title = { Text("SADNAN CAPTURE", fontWeight = FontWeight.Bold, fontSize = 18.sp) },
                             actions = {
                                 IconButton(onClick = {
                                     if (Settings.canDrawOverlays(this@MainActivity)) {
@@ -1199,22 +1756,24 @@ class MainActivity : ComponentActivity() {
                                         startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION))
                                     }
                                 }) { Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Overlay") }
+
                                 IconButton(onClick = {
-                                    if (capturing) {
-                                        startService(Intent(this@MainActivity, SadnanVpnService::class.java).apply {
-                                            action = "STOP_CAPTURE"
-                                        })
-                                    } else {
-                                        CaptureRepository.selectedAppName = selectedApp.displayName
-                                        CaptureRepository.selectedPackageName = selectedApp.internalPackageId
-                                        val prep = VpnService.prepare(this@MainActivity)
-                                        if (prep != null) vpnLauncher.launch(prep)
-                                        else startForegroundService(Intent(this@MainActivity, SadnanVpnService::class.java))
+                                    if (packets.isNotEmpty()) {
+                                        val dir = File(filesDir, "exports").apply { mkdirs() }
+                                        val outFile = when (dumpMode) {
+                                            DumpMode.PCAPNG -> File(dir, "sadnan_capture.pcapng").also { PcapWriter.writePcapng(it, packets) }
+                                            DumpMode.PCAP -> File(dir, "sadnan_capture.pcap").also { PcapWriter.writePcap(it, packets) }
+                                            DumpMode.RAW_BODY -> File(dir, "sadnan_bodies.txt").also { PcapWriter.writeRawBodyText(it, packets) }
+                                        }
+                                        ShareHelper.shareExportFile(this@MainActivity, outFile, "*/*")
                                     }
-                                }) {
+                                }) { Icon(Icons.Default.Share, contentDescription = "Export & Share") }
+
+                                IconButton(onClick = { toggleVpn() }) {
                                     Icon(
                                         if (capturing) Icons.Default.Stop else Icons.Default.PlayArrow,
-                                        contentDescription = "Toggle Capture"
+                                        contentDescription = "Toggle Capture",
+                                        tint = if (capturing) PcapColors.RedAlert else PcapColors.TealAccent
                                     )
                                 }
                             }
@@ -1226,62 +1785,162 @@ class MainActivity : ComponentActivity() {
                             Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("STATUS") })
                             Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("CONNECTIONS") })
                         }
+
                         if (selectedTab == 0) {
                             Column(
                                 Modifier.fillMaxSize().padding(16.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
+                                Spacer(Modifier.height(12.dp))
                                 Box(
-                                    Modifier.size(160.dp)
+                                    Modifier.size(168.dp)
                                         .background(if (capturing) PcapColors.TealPrimary else PcapColors.Card, CircleShape)
-                                        .clickable {
-                                            if (capturing) {
-                                                startService(Intent(this@MainActivity, SadnanVpnService::class.java).apply {
-                                                    action = "STOP_CAPTURE"
-                                                })
-                                            } else {
-                                                CaptureRepository.selectedAppName = selectedApp.displayName
-                                                CaptureRepository.selectedPackageName = selectedApp.internalPackageId
-                                                val prep = VpnService.prepare(this@MainActivity)
-                                                if (prep != null) vpnLauncher.launch(prep)
-                                                else startForegroundService(Intent(this@MainActivity, SadnanVpnService::class.java))
-                                            }
-                                        },
+                                        .clickable { toggleVpn() },
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(if (capturing) "STOP" else "READY", fontWeight = FontWeight.Bold, color = Color.White)
-                                }
-                                Spacer(Modifier.height(16.dp))
-                                Text("Packets: \${packets.size} · Drops: \$drops · Dump: \$dumpMode")
-                                Spacer(Modifier.height(16.dp))
-                                Text("Target Apps", fontWeight = FontWeight.SemiBold, modifier = Modifier.align(Alignment.Start))
-                                appOptions.forEach { app ->
-                                    Row(
-                                        Modifier.fillMaxWidth().clickable { selectedApp = app }.padding(vertical = 10.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        RadioButton(selected = selectedApp.id == app.id, onClick = { selectedApp = app })
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(app.displayName)
-                                    }
-                                }
-                            }
-                        } else {
-                            LazyColumn(Modifier.fillMaxSize()) {
-                                items(packets.reversed()) { pkt ->
-                                    Column(
-                                        Modifier.fillMaxWidth().background(PcapColors.ListRow).padding(12.dp)
-                                    ) {
-                                        Text("\${pkt.protocol} · \${pkt.dstIp}:\${pkt.dstPort}", fontWeight = FontWeight.SemiBold)
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(
-                                            "\${pkt.appDisplayName} · \${pkt.totalLength}B · \${pkt.countryCode}/\${pkt.asn}",
-                                            color = Color(0xFF90A4AE)
+                                            if (capturing) "CAPTURING" else "READY",
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White,
+                                            fontSize = 18.sp
+                                        )
+                                        Text(
+                                            "\${packets.sumOf { it.totalLength }} B",
+                                            color = Color(0xFFB0BEC5),
+                                            fontSize = 12.sp
                                         )
                                     }
-                                    HorizontalDivider(color = Color(0xFF262B33))
+                                }
+                                Spacer(Modifier.height(14.dp))
+                                Text(
+                                    "Packets: \${packets.size} · Drops: \$drops",
+                                    color = Color(0xFFB0BEC5),
+                                    fontSize = 13.sp
+                                )
+                                Spacer(Modifier.height(20.dp))
+
+                                ListItem(
+                                    colors = ListItemDefaults.colors(containerColor = PcapColors.ListRow),
+                                    headlineContent = { Text("Target apps") },
+                                    supportingContent = { Text(selectedApp.displayName) },
+                                    leadingContent = { Icon(Icons.Default.Apps, contentDescription = null, tint = PcapColors.TealAccent) },
+                                    modifier = Modifier.fillMaxWidth().clickable { showAppPicker = true }
+                                )
+                                HorizontalDivider(color = Color(0xFF262B33))
+                                ListItem(
+                                    colors = ListItemDefaults.colors(containerColor = PcapColors.ListRow),
+                                    headlineContent = { Text("Traffic dump") },
+                                    supportingContent = { Text(dumpMode.name) },
+                                    leadingContent = { Icon(Icons.Default.Save, contentDescription = null, tint = PcapColors.TealAccent) },
+                                    modifier = Modifier.fillMaxWidth().clickable {
+                                        val next = (dumpMode.ordinal + 1) % DumpMode.entries.size
+                                        dumpMode = DumpMode.entries[next]
+                                    }
+                                )
+                            }
+                        } else {
+                            Column(Modifier.fillMaxSize()) {
+                                Row(
+                                    Modifier.fillMaxWidth().background(PcapColors.Card).padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    OutlinedTextField(
+                                        value = searchQuery,
+                                        onValueChange = { searchQuery = it },
+                                        placeholder = { Text("Search host, SNI, or IP...", fontSize = 12.sp) },
+                                        singleLine = true,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(checked = groupByDomain, onCheckedChange = { groupByDomain = it })
+                                        Text("Group", fontSize = 12.sp)
+                                    }
+                                }
+
+                                val filtered = packets.filter { pkt ->
+                                    val q = searchQuery.trim().lowercase()
+                                    if (q.isEmpty()) true
+                                    else "\${pkt.srcIp} \${pkt.dstIp} \${pkt.sni.orEmpty()} \${pkt.dnsQuery.orEmpty()}".lowercase().contains(q)
+                                }.reversed()
+
+                                val displayList = if (groupByDomain) {
+                                    filtered.distinctBy { (it.sni ?: it.dnsQuery ?: it.dstIp).lowercase() }
+                                } else filtered
+
+                                LazyColumn(Modifier.fillMaxSize()) {
+                                    items(displayList) { pkt ->
+                                        Column(
+                                            Modifier.fillMaxWidth()
+                                                .background(PcapColors.ListRow)
+                                                .clickable { inspectedPacket = pkt }
+                                                .padding(12.dp)
+                                        ) {
+                                            Text(
+                                                "\${pkt.protocol} · \${pkt.sni ?: pkt.dnsQuery ?: pkt.dstIp}:\${pkt.dstPort}",
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (pkt.isEncryptedPayload) PcapColors.AmberTls else PcapColors.GreenUdp
+                                            )
+                                            Text(
+                                                "\${pkt.appDisplayName} · \${pkt.direction} · \${pkt.totalLength}B · \${pkt.countryCode}/\${pkt.asn}",
+                                                color = Color(0xFF90A4AE),
+                                                fontSize = 12.sp
+                                            )
+                                        }
+                                        HorizontalDivider(color = Color(0xFF262B33))
+                                    }
                                 }
                             }
                         }
+                    }
+
+                    if (showAppPicker) {
+                        AlertDialog(
+                            onDismissRequest = { showAppPicker = false },
+                            title = { Text("Target Apps") },
+                            text = {
+                                Column {
+                                    appOptions.forEach { app ->
+                                        Row(
+                                            Modifier.fillMaxWidth().clickable {
+                                                selectedApp = app
+                                                showAppPicker = false
+                                            }.padding(vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RadioButton(selected = selectedApp.id == app.id, onClick = {
+                                                selectedApp = app
+                                                showAppPicker = false
+                                            })
+                                            Spacer(Modifier.width(8.dp))
+                                            Text(app.displayName)
+                                        }
+                                    }
+                                }
+                            },
+                            confirmButton = {}
+                        )
+                    }
+
+                    inspectedPacket?.let { pkt ->
+                        val body = remember(pkt) { BodyBeautifier.analyze(pkt) }
+                        AlertDialog(
+                            onDismissRequest = { inspectedPacket = null },
+                            title = { Text("#\${pkt.sequence} · \${pkt.protocol}") },
+                            text = {
+                                Column(Modifier.verticalScroll(rememberScrollState())) {
+                                    Text("\${pkt.srcIp}:\${pkt.srcPort} -> \${pkt.dstIp}:\${pkt.dstPort}", fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                                    Spacer(Modifier.height(8.dp))
+                                    Text("Raw Response Body (\${body.contentType})", fontWeight = FontWeight.Bold, color = PcapColors.TealAccent)
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(body.formattedBody.ifEmpty { "(No payload bytes)" }, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { inspectedPacket = null }) { Text("Close") }
+                            }
+                        )
                     }
                 }
             }
